@@ -8,6 +8,10 @@
  * to gamify the learning process. The code is intentionally commented
  * throughout to make it easy for developers to follow along and extend.
  */
+// -------- Scale Factors (tweak if you like) --------
+const PLAYER_SCALE = 2.6;   // robot sprite size
+const TILE_SCALE   = 1.25;  // ground/platform/crate
+const MARKER_SCALE = 1.25;  // visible benefit markers / labels
 
 (() => {
   // Global game state shared between scenes. It keeps track of which
@@ -108,9 +112,35 @@
       // Load backgrounds
       this.load.image('city_bg', 'assets/city_bg.png');
       this.load.image('security_bg', 'assets/security_bg.png');
-      // Optionally load other assets here if you add more images
+      // Load platform tileset atlas for building proper ground and obstacles
+      this.load.atlas('platform', 'assets/platform_tileset.png', 'assets/platform_tileset_atlas.json');
+      // Load level layout (2D array) for more complex maps. The file defines
+      // `data`, `tileWidth` and `tileHeight` fields and can be used with
+      // Phaser’s tilemap API. It is optional but available if you wish to
+      // customise levels further.
+      this.load.json('level1', 'assets/platform_level_example.json');
+      // Attempt to load robot animations and atlas if available. If the image is
+      // missing the atlas loader will emit a warning but will not break the
+      // game. To fully integrate the animated character please provide
+      // `robot_platformer_spritesheet.png` alongside the JSON files.
+      this.load.json('robotAnims', 'assets/robot_platformer_animations.json');
+      this.load.atlas('robot', 'assets/robot_platformer_spritesheet.png', 'assets/robot_platformer_atlas.json');
     }
     create() {
+      // Generate robot animations from the loaded JSON definitions. Doing
+      // this here ensures all scenes can simply reference animations
+      // without recreating them. If the animations already exist,
+      // create() will silently skip them.
+      const animDefs = this.cache.json.get('robotAnims').anims || [];
+      animDefs.forEach((def) => {
+        if (this.anims.exists(def.key)) return;
+        this.anims.create({
+          key: def.key,
+          frames: def.frames.map((f) => ({ key: f.key, frame: f.frame })),
+          frameRate: def.frameRate,
+          repeat: def.repeat,
+        });
+      });
       this.scene.start('TitleScene');
     }
   }
@@ -127,10 +157,16 @@
     }
     create() {
       const { width, height } = this.scale;
-      // Add background image covering the entire screen
-      const bg = this.add.image(0, 0, 'city_bg');
-      bg.setOrigin(0);
-      bg.setDisplaySize(width, height);
+      // Add a consistent background image covering the entire screen. Store
+      // it on the scene so it can be resized when the game scales.
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      // Update the background size on window resize
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Title text
       const title = this.add.text(width / 2, height * 0.25, 'Node modules with Rust: GIC Security module', {
         fontSize: '42px',
@@ -184,10 +220,15 @@
     }
     create() {
       const { width, height } = this.scale;
-      // Background for this level uses the security‑themed artwork
-      const bg = this.add.image(0, 0, 'security_bg');
-      bg.setOrigin(0);
-      bg.setDisplaySize(width, height);
+      // Consistent background across all scenes
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      // Resize handler for responsive backgrounds
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Instructions text
       this.add.text(width / 2, 20, 'Move with arrow keys and collect all benefits', {
         fontSize: '18px',
@@ -196,25 +237,86 @@
         backgroundColor: 'rgba(0,0,0,0.5)',
         padding: { left: 10, right: 10, top: 5, bottom: 5 }
       }).setOrigin(0.5);
-      // Create a static floor
-      const floor = this.physics.add.staticGroup();
-      floor.create(width / 2, height - 10, null).setDisplaySize(width, 20).setOrigin(0.5).refreshBody();
-      // Player setup: draw a simple rectangle and give it a physics body.
-      this.player = this.add.rectangle(50, height - 50, 32, 48, 0xffc857);
-      this.physics.add.existing(this.player);
-      this.player.body.setCollideWorldBounds(true);
-      this.player.body.setGravityY(300);
+      // Build the ground using the provided platform tileset. We stitch
+// together a left, middle and right top tile to span the entire
+// width. Each tile is a static physics body so the player can
+// stand on it. Using the atlas allows us to easily swap frames.
+// (Now scaled up and with refreshBody() so Arcade uses the new size.)
+const platforms = this.physics.add.staticGroup();
+const tilePixel = 32;                 // authored tile size in atlas
+const groundY   = height - 10;        // baseline for ground
+const tilesWide = Math.ceil(width / (tilePixel * TILE_SCALE)) + 1;
+
+for (let i = 0; i < tilesWide; i++) {
+  let frame = 'ground_top';
+  if (i === 0) frame = 'ground_top_left';
+  else if (i === tilesWide - 1) frame = 'ground_top_right';
+
+  const tile = this.physics.add.staticImage(
+    i * tilePixel * TILE_SCALE,
+    groundY,
+    'platform',
+    frame
+  )
+    .setScale(TILE_SCALE)
+    .setOrigin(0, 1);
+
+  tile.refreshBody();          // IMPORTANT after scaling static bodies
+  platforms.add(tile);
+}
+
+// Add a few floating platforms and crates to vary gameplay. These
+// platforms provide access to higher benefits and encourage jumping.
+// Coordinates adapt to screen size and scale.
+const floats = this.physics.add.staticGroup();
+
+// Thin platforms (you can land on them)
+const floatY = Math.max(120, height - Math.round(220 * TILE_SCALE));
+[width * 0.30, width * 0.60].forEach((x) => {
+  const platform = this.physics.add.staticImage(x, floatY, 'platform', 'platform_thin')
+    .setScale(TILE_SCALE)
+    .setOrigin(0.5, 1);
+  platform.refreshBody();
+  floats.add(platform);
+});
+
+// Crates act as small steps
+[width * 0.12, width * 0.43, width * 0.82].forEach((x) => {
+  // Position so top aligns nicely with the ground after scaling
+  const crate = this.physics.add.staticImage(
+    x,
+    groundY - (tilePixel * TILE_SCALE - 10),
+    'platform',
+    'crate'
+  )
+    .setScale(TILE_SCALE)
+    .setOrigin(0.5, 1);
+  crate.refreshBody();
+  floats.add(crate);
+});
+
+      // Player setup: use the loaded robot sprite. The sprite is
+      // initialised with the idle frame and has an arcade physics body
+      // attached automatically. We also set gravity so it can jump
+      // and enable world bounds so it stays in the level.
+      this.player = this.physics.add.sprite(50, height - 100, 'robot', 'idle_0');
+      this.player.setCollideWorldBounds(true);
+      this.player.setGravityY(300);
+      this.player.anims.play('robot-idle');
       // Cursor input
       this.cursors = this.input.keyboard.createCursorKeys();
       // Group for benefit items
       this.benefits = this.physics.add.group();
-      // Positions for each benefit item
+      // Positions for each benefit item. Items are placed at varying
+      // heights to align with floating platforms and crates. Lower
+      // positions are reachable from the ground while higher ones require
+      // jumping onto a floating platform.
       const positions = [
-        { x: 150, y: height - 100, key: 'Rust' },
-        { x: 350, y: height - 150, key: 'Node' },
-        { x: 550, y: height - 100, key: 'concurrency' },
-        { x: 750, y: height - 150, key: 'lowlevel' },
-        { x: 950, y: height - 100, key: 'integration' },
+        { x: 150, y: height - 120, key: 'performance' },
+        { x: 350, y: height - 250, key: 'memory' },
+        { x: 550, y: height - 120, key: 'concurrency' },
+        { x: 750, y: height - 250, key: 'lowlevel' },
+        { x: 950, y: height - 120, key: 'integration' },
       ];
       positions.forEach((pos) => {
         // Create an invisible physics body; we'll draw shapes separately
@@ -225,9 +327,9 @@
         const g = this.add.graphics();
         let color;
         switch (pos.key) {
-          case 'Rust':
+          case 'performance':
             color = 0xff595e; break;
-          case 'Node':
+          case 'memory':
             color = 0x8ac926; break;
           case 'concurrency':
             color = 0x1982c4; break;
@@ -239,7 +341,7 @@
         g.fillStyle(color, 1);
         g.fillCircle(pos.x, pos.y, 12);
         // Label text
-        this.add.text(pos.x, pos.y - 30, pos.key.charAt(0).toUpperCase() + pos.key.slice(1), {
+        this.add.text(pos.x, pos.y - 20, pos.key.charAt(0).toUpperCase() + pos.key.slice(1), {
           fontSize: '14px',
           fontFamily: 'Arial',
           color: '#ffffff',
@@ -247,7 +349,8 @@
         }).setOrigin(0.5);
       });
       // Physics collisions
-      this.physics.add.collider(this.player, floor);
+      this.physics.add.collider(this.player, platforms);
+      this.physics.add.collider(this.player, floats);
       this.physics.add.overlap(this.player, this.benefits, this.collectBenefit, null, this);
       // Next button (hidden until all benefits collected)
       this.nextButton = this.add.text(width - 110, height - 40, 'Next ▶', {
@@ -264,16 +367,33 @@
     }
     update() {
       const speed = 200;
+      // Horizontal movement & animations
       if (this.cursors.left.isDown) {
-        this.player.body.setVelocityX(-speed);
+        this.player.setVelocityX(-speed);
+        this.player.setFlipX(true);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else if (this.cursors.right.isDown) {
-        this.player.body.setVelocityX(speed);
+        this.player.setVelocityX(speed);
+        this.player.setFlipX(false);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else {
-        this.player.body.setVelocityX(0);
+        this.player.setVelocityX(0);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-idle', true);
+        }
       }
       // Jump
       if (this.cursors.up.isDown && this.player.body.blocked.down) {
-        this.player.body.setVelocityY(-320);
+        this.player.setVelocityY(-320);
+        this.player.anims.play('robot-jump', true);
+      }
+      // Falling animation
+      if (!this.player.body.blocked.down && this.player.body.velocity.y > 0) {
+        this.player.anims.play('robot-fall', true);
       }
     }
     collectBenefit(player, item) {
@@ -283,12 +403,12 @@
       // Display overlay with explanation of the benefit
       let title, body;
       switch (item.benefitKey) {
-        case 'Rust':
-          title = 'Why Rust';
-          body = 'Rust code runs close to the metal and often outperforms JavaScript for CPU‑heavy tasks. It gives you explicit control over memory and avoids costly garbage collection, providing faster operations for things like cryptography or data processing. \n \n - Ownership & Borrowing \n - Arc and mutex in multithreds \n - Extensive reach [Edge use cases (IOT, Database & DevOps, Web & backend,       Machine Learning etc)]';
+        case 'performance':
+          title = 'Performance';
+          body = 'Rust code runs close to the metal and often outperforms JavaScript for CPU‑heavy tasks. It gives you explicit control over memory and avoids costly garbage collection, providing faster operations for things like cryptography or data processing.';
           break;
-        case 'Node':
-          title = 'Custom modules with napi-rs';
+        case 'memory':
+          title = 'Memory Safety';
           body = 'Rust prevents common pitfalls such as null pointer dereferences and buffer overflows at compile time. Its ownership system ensures that memory is freed predictably without a garbage collector, reducing leaks and fragmentation.';
           break;
         case 'concurrency':
@@ -306,7 +426,7 @@
       }
       createOverlay(this, { title, body }).then(() => {
         // When overlay closes, check if all benefits are collected
-        const allCollected = ['Rust','Node','concurrency','lowlevel','integration'].every(k => gameState.benefitsCollected[k]);
+        const allCollected = ['performance','memory','concurrency','lowlevel','integration'].every(k => gameState.benefitsCollected[k]);
         if (allCollected) {
           this.nextButton.visible = true;
         }
@@ -327,8 +447,14 @@
     }
     create() {
       const { width, height } = this.scale;
-      // Scene background is dark to contrast the bright elements
-      this.cameras.main.setBackgroundColor('#111820');
+      // Consistent background
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Title
       this.add.text(width / 2, 40, 'Building the Bridge', {
         fontSize: '32px',
@@ -407,7 +533,14 @@
     }
     create() {
       const { width, height } = this.scale;
-      this.cameras.main.setBackgroundColor('#0b1e2d');
+      // Consistent background using the city image
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Steps text definitions based on README instructions
       this.steps = [
         {
@@ -435,14 +568,25 @@
           body: 'Run npm install to install the gic_sec package and any other dependencies.',
         },
       ];
-      // Ground
+      // Build the ground using the platform tileset. This creates a solid
+      // foundation across the entire width so the player can walk along
+      // the signposts. Each tile is added as a static image with
+      // collision enabled.
       const ground = this.physics.add.staticGroup();
-      ground.create(width / 2, height - 10, null).setDisplaySize(width, 20).setOrigin(0.5).refreshBody();
-      // Player: rectangle with physics body
-      this.player = this.add.rectangle(50, height - 50, 32, 48, 0xffc857);
-      this.physics.add.existing(this.player);
-      this.player.body.setCollideWorldBounds(true);
-      this.player.body.setGravityY(300);
+      const tileSize = 32;
+      const tilesWide = Math.ceil(width / tileSize) + 1;
+      for (let i = 0; i < tilesWide; i++) {
+        let frame = 'ground_top';
+        if (i === 0) frame = 'ground_top_left';
+        else if (i === tilesWide - 1) frame = 'ground_top_right';
+        const tile = ground.create(i * tileSize, height, 'platform', frame);
+        tile.setOrigin(0, 1);
+      }
+      // Player: robot sprite with physics body
+      this.player = this.physics.add.sprite(50, height - 100, 'robot', 'idle_0');
+      this.player.setCollideWorldBounds(true);
+      this.player.setGravityY(300);
+      this.player.anims.play('robot-idle');
       // Controls
       this.cursors = this.input.keyboard.createCursorKeys();
       // Signposts
@@ -481,14 +625,29 @@
     update() {
       const speed = 200;
       if (this.cursors.left.isDown) {
-        this.player.body.setVelocityX(-speed);
+        this.player.setVelocityX(-speed);
+        this.player.setFlipX(true);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else if (this.cursors.right.isDown) {
-        this.player.body.setVelocityX(speed);
+        this.player.setVelocityX(speed);
+        this.player.setFlipX(false);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else {
-        this.player.body.setVelocityX(0);
+        this.player.setVelocityX(0);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-idle', true);
+        }
       }
       if (this.cursors.up.isDown && this.player.body.blocked.down) {
-        this.player.body.setVelocityY(-320);
+        this.player.setVelocityY(-320);
+        this.player.anims.play('robot-jump', true);
+      }
+      if (!this.player.body.blocked.down && this.player.body.velocity.y > 0) {
+        this.player.anims.play('robot-fall', true);
       }
     }
     reachSign(player, sign) {
@@ -517,7 +676,14 @@
     }
     create() {
       const { width, height } = this.scale;
-      this.cameras.main.setBackgroundColor('#1a2530');
+      // Consistent background using the city image
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Title
       this.add.text(width / 2, 20, 'Explore gic_sec', {
         fontSize: '32px',
@@ -526,12 +692,22 @@
       }).setOrigin(0.5);
       // Ground
       const ground = this.physics.add.staticGroup();
-      ground.create(width / 2, height - 10, null).setDisplaySize(width, 20).setOrigin(0.5).refreshBody();
-      // Player: rectangle with physics body
-      this.player = this.add.rectangle(60, height - 50, 32, 48, 0xffc857);
-      this.physics.add.existing(this.player);
-      this.player.body.setCollideWorldBounds(true);
-      this.player.body.setGravityY(300);
+      // Build ground using tiles from the platform atlas. This replaces
+      // the simple rectangle with textured tiles that span the screen.
+      const tileSize = 32;
+      const tilesWide = Math.ceil(width / tileSize) + 1;
+      for (let i = 0; i < tilesWide; i++) {
+        let frame = 'ground_top';
+        if (i === 0) frame = 'ground_top_left';
+        else if (i === tilesWide - 1) frame = 'ground_top_right';
+        const tile = ground.create(i * tileSize, height, 'platform', frame);
+        tile.setOrigin(0, 1);
+      }
+      // Player: robot sprite with physics body
+      this.player = this.physics.add.sprite(60, height - 100, 'robot', 'idle_0');
+      this.player.setCollideWorldBounds(true);
+      this.player.setGravityY(300);
+      this.player.anims.play('robot-idle');
       // Controls
       this.cursors = this.input.keyboard.createCursorKeys();
       // Stations definitions
@@ -654,14 +830,29 @@ console.log(token);\nconsole.log(uuid);`,
     update() {
       const speed = 200;
       if (this.cursors.left.isDown) {
-        this.player.body.setVelocityX(-speed);
+        this.player.setVelocityX(-speed);
+        this.player.setFlipX(true);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else if (this.cursors.right.isDown) {
-        this.player.body.setVelocityX(speed);
+        this.player.setVelocityX(speed);
+        this.player.setFlipX(false);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-walk', true);
+        }
       } else {
-        this.player.body.setVelocityX(0);
+        this.player.setVelocityX(0);
+        if (this.player.body.blocked.down) {
+          this.player.anims.play('robot-idle', true);
+        }
       }
       if (this.cursors.up.isDown && this.player.body.blocked.down) {
-        this.player.body.setVelocityY(-320);
+        this.player.setVelocityY(-320);
+        this.player.anims.play('robot-jump', true);
+      }
+      if (!this.player.body.blocked.down && this.player.body.velocity.y > 0) {
+        this.player.anims.play('robot-fall', true);
       }
     }
     visitStation(player, stationBody) {
@@ -704,7 +895,14 @@ console.log(token);\nconsole.log(uuid);`,
     }
     create() {
       const { width, height } = this.scale;
-      this.cameras.main.setBackgroundColor('#0b1e2d');
+      // Consistent background across scenes
+      this.bg = this.add.image(0, 0, 'city_bg');
+      this.bg.setOrigin(0);
+      this.bg.setDisplaySize(width, height);
+      this.scale.on('resize', (gameSize) => {
+        const { width: w, height: h } = gameSize;
+        this.bg.setDisplaySize(w, h);
+      });
       // Title
       this.add.text(width / 2, 60, 'Congratulations!', {
         fontSize: '40px',
@@ -749,9 +947,15 @@ console.log(token);\nconsole.log(uuid);`,
   const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
-    width: 1700,
-    height: 920,
-    backgroundColor: '#000000',
+    width: window.innerWidth,
+    height: window.innerHeight,
+    // Make the game responsive. RESIZE allows the game canvas to match
+    // the parent container dimensions. AutoCenter ensures the canvas is
+    // centered when aspect ratios differ.
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
     physics: {
       default: 'arcade',
       arcade: {

@@ -1,0 +1,200 @@
+{
+  "anims": [
+    {
+      "key": "robot-idle",
+      "type": "frame",
+      "repeat": -1,
+      "frameRate": 6,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "idle_0"
+        },
+        {
+          "key": "robot",
+          "frame": "idle_1"
+        },
+        {
+          "key": "robot",
+          "frame": "idle_2"
+        },
+        {
+          "key": "robot",
+          "frame": "idle_3"
+        }
+      ]
+    },
+    {
+      "key": "robot-walk",
+      "type": "frame",
+      "repeat": -1,
+      "frameRate": 10,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "walk_0"
+        },
+        {
+          "key": "robot",
+          "frame": "walk_1"
+        },
+        {
+          "key": "robot",
+          "frame": "walk_2"
+        },
+        {
+          "key": "robot",
+          "frame": "walk_3"
+        },
+        {
+          "key": "robot",
+          "frame": "walk_4"
+        },
+        {
+          "key": "robot",
+          "frame": "walk_5"
+        }
+      ]
+    },
+    {
+      "key": "robot-run",
+      "type": "frame",
+      "repeat": -1,
+      "frameRate": 14,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "run_0"
+        },
+        {
+          "key": "robot",
+          "frame": "run_1"
+        },
+        {
+          "key": "robot",
+          "frame": "run_2"
+        },
+        {
+          "key": "robot",
+          "frame": "run_3"
+        },
+        {
+          "key": "robot",
+          "frame": "run_4"
+        },
+        {
+          "key": "robot",
+          "frame": "run_5"
+        }
+      ]
+    },
+    {
+      "key": "robot-jump",
+      "type": "frame",
+      "repeat": 0,
+      "frameRate": 8,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "jump_0"
+        },
+        {
+          "key": "robot",
+          "frame": "jump_1"
+        },
+        {
+          "key": "robot",
+          "frame": "jump_2"
+        }
+      ]
+    },
+    {
+      "key": "robot-fall",
+      "type": "frame",
+      "repeat": 0,
+      "frameRate": 8,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "fall_0"
+        },
+        {
+          "key": "robot",
+          "frame": "fall_1"
+        }
+      ]
+    },
+    {
+      "key": "robot-attack",
+      "type": "frame",
+      "repeat": 0,
+      "frameRate": 12,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "attack_0"
+        },
+        {
+          "key": "robot",
+          "frame": "attack_1"
+        },
+        {
+          "key": "robot",
+          "frame": "attack_2"
+        },
+        {
+          "key": "robot",
+          "frame": "attack_3"
+        }
+      ]
+    },
+    {
+      "key": "robot-hurt",
+      "type": "frame",
+      "repeat": 0,
+      "frameRate": 8,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "hurt_0"
+        },
+        {
+          "key": "robot",
+          "frame": "hurt_1"
+        }
+      ]
+    },
+    {
+      "key": "robot-die",
+      "type": "frame",
+      "repeat": 0,
+      "frameRate": 8,
+      "frames": [
+        {
+          "key": "robot",
+          "frame": "die_0"
+        },
+        {
+          "key": "robot",
+          "frame": "die_1"
+        },
+        {
+          "key": "robot",
+          "frame": "die_2"
+        },
+        {
+          "key": "robot",
+          "frame": "die_3"
+        },
+        {
+          "key": "robot",
+          "frame": "die_4"
+        },
+        {
+          "key": "robot",
+          "frame": "die_5"
+        }
+      ]
+    }
+  ]
+}
